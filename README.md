@@ -1,5 +1,5 @@
 # DSCI 551 PROJECT
-This project is made by Daksh Hasmukh Patel. 
+This project is made by Daksh Hasmukh Patel and Kohta. 
 
 ## How to run the Project:
 * Please run the requirements.txt file
