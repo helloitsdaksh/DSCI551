@@ -27,20 +27,29 @@ def process_json(input_file):
     inside_parent_node = False
     inside_object = False
     has_parent_node = False
+    is_array = False
     parent_node = ' '
     current_object = ''
+    counter = 1
+    end_clause = False
 
     with open(input_file, 'r') as json_file:
         for line in json_file:
             l = line.strip()
 
-            if l.startswith('"') and l.endswith('['):
+            if counter == 1 and l.startswith('['):
+                inside_parent_node = True
+                is_array = True
+            elif l.startswith('"') and l.endswith('[') and not inside_parent_node:
                 parent_node = extract_parent_node_name(l)
                 inside_parent_node = True
                 has_parent_node = True
-            elif l.startswith('[') and not inside_parent_node:
+                is_array = True
+            elif l.startswith('"') and l.endswith('{') and not inside_parent_node:
                 inside_parent_node = True
-            elif inside_parent_node:
+                current_object += '{'
+                current_object += l
+            elif inside_parent_node and is_array:
                 if l.startswith('{'):
                     inside_object = True
                     current_object += '{'
@@ -60,13 +69,27 @@ def process_json(input_file):
                         with open(output_file, 'w') as jsonl_file:
                             jsonl_file.write(current_object)
                     current_object = ''
-
-            if l.startswith(']') and inside_parent_node:
+            elif l.startswith(']') and not inside_object and inside_parent_node and has_parent_node:
                 inside_parent_node = False
+
+            elif inside_parent_node and not is_array:
+                current_object += l
+                if l.endswith('}') and not end_clause:
+                    end_clause = True
+                elif l.endswith('}') and end_clause:
+                    output_file = f'{input_path}.jsonl'
+                    if os.path.isfile(output_file):
+                        with open(output_file, 'a') as jsonl_file:
+                            jsonl_file.write(current_object)
+                    else:
+                        with open(output_file, 'w') as jsonl_file:
+                            jsonl_file.write(current_object)
+
+            counter += 1
 
 
 if __name__ == '__main__':
-    input_file = 'data/sample_product.json'
+    input_file = 'data/spotify_sample.json'
     process_json(input_file)
     print('Done!')
 
