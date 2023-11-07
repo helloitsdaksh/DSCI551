@@ -1,0 +1,35 @@
+{
+    "departments.csv": {
+        "table_name": "departments.csv",
+        "columns": {
+            "department_id": "INT",
+            "department_name": "VARCHAR(50)"
+        },
+        "primary_key": "department_id",
+        "unique_constraints": null,
+        "foreign_keys": null
+    },
+    "employees.csv": {
+        "table_name": "employees.csv",
+        "columns": {
+            "employee_id": "INT",
+            "first_name": "VARCHAR(50)",
+            "last_name": "VARCHAR(50)",
+            "department_id": "INT"
+        },
+        "primary_key": "employee_id",
+        "unique_constraints": [
+            "first_name"
+        ],
+        "foreign_keys": [
+            {
+                "department_id": "departments"
+            }
+        ]
+    },
+    "references": {
+        "departments": [
+            "employees"
+        ]
+    }
+}
