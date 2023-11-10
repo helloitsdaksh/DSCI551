@@ -31,7 +31,7 @@ def process_json(input_file):
     parent_node = ' '
     current_object = ''
     counter = 1
-    end_clause = False
+    clause_count = 0
 
     with open(input_file, 'r') as json_file:
         for line in json_file:
@@ -47,8 +47,10 @@ def process_json(input_file):
                 is_array = True
             elif l.startswith('"') and l.endswith('{') and not inside_parent_node:
                 inside_parent_node = True
+                inside_object = True
                 current_object += '{'
                 current_object += l
+                clause_count += 1
             elif inside_parent_node and is_array:
                 if l.startswith('{'):
                     inside_object = True
@@ -73,10 +75,13 @@ def process_json(input_file):
                 inside_parent_node = False
 
             elif inside_parent_node and not is_array:
-                current_object += l
-                if l.endswith('}') and not end_clause:
-                    end_clause = True
-                elif l.endswith('}') and end_clause:
+                if l.__contains__('{'):
+                    clause_count += 1
+                if l.__contains__('}'):
+                    clause_count -= 1
+                if (l.startswith('},') and inside_object) or clause_count == 0:
+                    inside_object = False
+                    current_object += '}}\n'
                     output_file = f'{input_path}.jsonl'
                     if os.path.isfile(output_file):
                         with open(output_file, 'a') as jsonl_file:
@@ -84,12 +89,18 @@ def process_json(input_file):
                     else:
                         with open(output_file, 'w') as jsonl_file:
                             jsonl_file.write(current_object)
+                elif l.startswith('"') and not inside_object:
+                    inside_object = True
+                    current_object = '{'
+                    current_object += l
+                else:
+                    current_object += l
 
             counter += 1
 
 
 if __name__ == '__main__':
-    input_file = 'data/spotify_sample.json'
+    input_file = '../data/sample_product.json'
     process_json(input_file)
     print('Done!')
 
