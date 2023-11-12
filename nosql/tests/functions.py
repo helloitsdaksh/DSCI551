@@ -8,70 +8,144 @@ I will modify the functions to iterate over multiple files later
 import json
 import os
 
+METADATA_FILE = 'metadata.json'
+MAX_FILE_SIZE = 10000000  # 10 MB
+# MAX_FILE_SIZE = 1000
 
-def insert_one(database: str, collection: str, new_data: str) -> bool:
+
+def load_metadata():
+    if os.path.exists(METADATA_FILE):
+        with open(METADATA_FILE, 'r') as file:
+            return json.load(file)
+    else:
+        return {}
+
+
+def save_metadata(metadata):
+    with open(METADATA_FILE, 'w') as file:
+        json.dump(metadata, file, indent=2)
+
+
+def update_metadata(database_name: str, collection_name: str, file_number: int):
+    metadata = load_metadata()
+
+    for database in metadata.get('databases', []):
+        if database['name'] == database_name:
+            for collection in database['collections']:
+                if collection['name'] == collection_name:
+                    collection['partition_count'] = file_number
+                    save_metadata(metadata)
+                    return True
+
+            # If the collection doesn't exist, add a new entry
+            database['collections'].append({'name': collection_name, 'partition_count': file_number})
+            save_metadata(metadata)
+            return True
+
+
+def get_last_file_number(database_name: str, collection_name: str) -> list or None:
+    """
+    Returns the last file number of a collection in a JSON database file.
+    :param database_name: The name of the database.
+    :param collection_name: The name of the collection within the database.
+    :return: The last file number or None if the collection does not exist.
+    """
+    metadata = load_metadata()
+    try:  # should check if the collection exists first
+        for database in metadata['databases']:
+            if database['name'] == database_name:
+                for collection in database['collections']:
+                    if collection['name'] == collection_name:
+                        file_number = collection['partition_count']
+                        return file_number
+    except KeyError:
+        return None
+
+
+def insert_one(database_name: str, collection_name: str, new_data: str) -> bool:
     """
     Inserts a single item into a collection in a JSON database file.
-    :param database: The name of the database.
-    :param collection: The name of the collection within the database.
+    :param database_name: The name of the database.
+    :param collection_name: The name of the collection within the database.
     :param new_data: The data to be inserted as a JSON object.
     :return: True if the insertion was successful, False otherwise.
     """
-    file_name = f'../data/{database}_{collection}.json'
     try:
         json_data = json.loads(new_data)
     except json.decoder.JSONDecodeError:
         print('Insertion failed. Invalid JSON.')
         return False
 
-    try:  # should check if the collection exists first
-        # Load the existing data from the JSON file
-        with open(file_name, 'r') as file:
-            collection_content = json.load(file)
-    except FileNotFoundError:
-        # If the database file doesn't exist, create an empty one
-        collection_content = []
+    existing_file_number = get_last_file_number(database_name, collection_name)
+    if existing_file_number is None:
+        existing_data = [json_data]
+        file_name = f'../data/{database_name}_{collection_name}_1.json'
+        with open(file_name, 'w') as file:
+            json.dump(existing_data, file, indent=2)
 
-    # Append the new data to the collection
-    collection_content.append(json_data)
+        update_metadata(database_name, collection_name, 1)
 
-    # Write the updated data back to the JSON file
-    with open(file_name, 'w') as file:
-        json.dump(collection_content, file, indent=2)
-    print('Insertion successful.')
+    else:
+        with open(f'../data/{database_name}_{collection_name}_{existing_file_number}.json', 'r') as file:
+            existing_data = json.load(file)
+
+        if len(existing_data) + len(json_data) >= MAX_FILE_SIZE:
+            with open(f'../data/{database_name}_{collection_name}_{existing_file_number+1}.json', 'w') as new_file:
+                json.dump([json_data], new_file, indent=2)
+            update_metadata(database_name, collection_name, existing_file_number+1)
+        else:
+            existing_data.append(json_data)
+            with open(f'../data/{database_name}_{collection_name}_{existing_file_number}.json', 'w') as file:
+                json.dump(existing_data, file, indent=2)
+
     return True
 
 
-def insert_many(database: str, collection: str, new_data: str) -> bool:
+def insert_many(database_name: str, collection_name: str, new_data: str) -> bool:
     """
     Inserts multiple items into a collection in a JSON database file.
-    :param database: The name of the database.
-    :param collection: The name of the collection within the database.
+    :param database_name: The name of the database.
+    :param collection_name: The name of the collection within the database.
     :param new_data: The data to be inserted as a JSON object.
     :return: True if the insertion was successful, False otherwise.
     """
-    file_name = f'../data/{database}_{collection}.json'
     try:
         json_data = json.loads(new_data)
     except json.decoder.JSONDecodeError:
         print('Insertion failed. Invalid JSON.')
         return False
 
-    try:
-        # Load the existing data from the JSON file
-        with open(file_name, 'r') as file:
-            collection_content = json.load(file)
-    except FileNotFoundError:
-        # If the database file doesn't exist, create an empty one
-        collection_content = []
+    existing_file_number = get_last_file_number(database_name, collection_name)
+    if existing_file_number is None:
+        existing_data = [json_data]
+        file_name = f'../data/{database_name}_{collection_name}_1.json'
+        with open(file_name, 'w') as file:
+            json.dump(existing_data, file, indent=2)
 
-    # Append the new data to the collection
-    collection_content.extend(json_data)
+        update_metadata(database_name, collection_name, 1)
 
-    # Write the updated data back to the JSON file
-    with open(file_name, 'w') as file:
-        json.dump(collection_content, file, indent=2)
-    print('Insertion successful.')
+    else:
+        with open(f'../data/{database_name}_{collection_name}_{existing_file_number}.json', 'r') as file:
+            existing_data = json.load(file)
+
+        if len(existing_data) + len(json_data) >= MAX_FILE_SIZE:
+            update_metadata(database_name, collection_name, existing_file_number+1)
+            overflow_data = []
+            for item in json_data:
+                if len(existing_data) + len(item) >= MAX_FILE_SIZE:
+                    overflow_data.append(item)
+                else:
+                    existing_data.append(item)
+            with open(f'../data/{database_name}_{collection_name}_{existing_file_number+1}.json', 'w') as file:
+                json.dump(overflow_data, file, indent=2)
+            with open(f'../data/{database_name}_{collection_name}_{existing_file_number}.json', 'w') as file:
+                json.dump(existing_data, file, indent=2)
+
+        else:
+            existing_data.extend(json_data)
+            with open(f'../data/{database_name}_{collection_name}_{existing_file_number}.json', 'w') as file:
+                json.dump(existing_data, file, indent=2)
+
     return True
 
 
@@ -273,16 +347,16 @@ def update_many(database: str, collection: str, condition: str, new_data: str) -
 
 
 if __name__ == '__main__':
-    database = 'sample'
+    database = 'basketball'
     collection = 'test'
-    # new_data = '{"key1": {"key6": "value6"}, "key2": "value2"}'
+    # new_data = '{"PLAYER_NAME": "John Smith", "TEAM_ID": "0000", "PLAYER_ID": "0000", "SEASON": "2023"}'
     # insert_one(database, collection, new_data)
-    # l_data = '[{"key3": "value3", "key4": "value4"},{"key3": "value3", "key4": "value4"}]'
-    # insert_many(database, collection, l_data)
+    l_data = '[{"PLAYER_NAME": "John Smith", "TEAM_ID": "0000", "PLAYER_ID": "0000", "SEASON": "2023"}, {"PLAYER_NAME": "John Smith", "TEAM_ID": "0000", "PLAYER_ID": "0000", "SEASON": "2023"}]'
+    insert_many(database, collection, l_data)
     # condition = '{"key3": "value3"}'
     # delete_one(database, collection, condition)
     # delete_many(database, collection, '{}')
     # delete_many(database, collection, condition)
-    update_data = '{"key5": "value6"}'
-    update_many(database, collection, '{}', update_data)
+    # update_data = '{"key5": "value6"}'
+    # update_many(database, collection, '{}', update_data)
     # update_many(database, collection, condition, update_data)
