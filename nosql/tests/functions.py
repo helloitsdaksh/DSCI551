@@ -1,7 +1,6 @@
 """
 Implementing CRUD Operations
-For now, I assume that the data is stored in a single Json file
-I will modify the functions to iterate over multiple files later
+## update operations do not check the file size
 """
 
 
@@ -180,26 +179,41 @@ def delete_one(database_name: str, collection_name: str, condition: dict) -> boo
 
     existing_file_number = get_last_file_number(database_name, collection_name)
 
-    for i in range(1, existing_file_number+1):
-        file_name = f'../data/{database_name}_{collection_name}_{i}.json'
-        try:
-            with open(file_name, 'r') as file:
-                data = json.load(file)
-        except FileNotFoundError:
-            print(f'File {file_name} not found.')
-            return False
+    if not dict_condition: # if condition is empty, delete first item
+        file_name = f'../data/{database_name}_{collection_name}_1.json'
+        with open(file_name, 'r+') as file:
+            data = json.load(file)
+            if len(data) > 0:
+                data.pop(0)
+                file.seek(0)
+                json.dump(data, file, indent=2)
+                file.truncate()
+                print('Deletion successful.')
+            else:
+                print('Collection is empty. Nothing to delete.')
+                return False
 
-        if len(data) > 0:
-            for item in data:
-                if match_nested_condition(item, dict_condition):
-                    data.remove(item)
-                    with open(file_name, 'w') as file:
-                        json.dump(data, file, indent=2)
-                    print('Deletion successful.')
-                    return True
-        else:
-            print('Collection is empty. Nothing to delete.')
-            return False
+    else:
+        for i in range(1, existing_file_number+1):
+            file_name = f'../data/{database_name}_{collection_name}_{i}.json'
+            try:
+                with open(file_name, 'r') as file:
+                    data = json.load(file)
+            except FileNotFoundError:
+                print(f'File {file_name} not found.')
+                return False
+
+            if len(data) > 0:
+                for item in data:
+                    if match_nested_condition(item, dict_condition):
+                        data.remove(item)
+                        with open(file_name, 'w') as file:
+                            json.dump(data, file, indent=2)
+                        print('Deletion successful.')
+                        return True
+            else:
+                print('Collection is empty. Nothing to delete.')
+                return False
 
     print('Item matching condition not found.')
     return False
@@ -233,7 +247,7 @@ def delete_many(database_name: str, collection_name: str, condition: str) -> boo
             print(f'File {file_name} not found.')
             return False
 
-        if not dict_condition:  # Check if the condition is empty
+        if not dict_condition:  # if the condition is empty, delete all items
             if i > 1:
                 os.remove(file_name)
             else:
@@ -275,90 +289,111 @@ def update_nested_item(item: dict, condition: dict, new_data: dict) -> None:
                 item[new_key] = new_value
 
 
-def update_one(database: str, collection: str, condition: str, new_data: str) -> bool:
+def update_one(database_name: str, collection_name: str, condition: str, new_data: str) -> bool:
     """
     Updates a first itme that matches the given condition in a collection in a JSON database file.
-    :param database:
-    :param collection:
+    :param database_name:
+    :param collection_name:
     :param condition:
+    :param new_data:
     :return: True if the update was successful, False otherwise.
     """
-    file_name = f'../data/{database}_{collection}.json'
     try:
-        with open(file_name, 'r') as file:
-            data = json.load(file)
-    except FileNotFoundError:
+        dict_condition = json.loads(condition)
+        dict_new_data = json.loads(new_data)
+    except json.decoder.JSONDecodeError:
+        print('Update failed. Invalid JSON.')
         return False
 
-    dict_condition = json.loads(condition)
-    dict_new_data = json.loads(new_data)
+    existing_file_number = get_last_file_number(database_name, collection_name)
 
-    if not dict_condition:  # Check if the condition is empty
-        if data:
-            item_to_update = data[0]  # Get the first item in the collection
-            # Update the first item
-            for key, value in dict_new_data.items():
-                item_to_update[key] = value
-            with open(file_name, 'w') as file:
+    if not dict_condition:  # if condition is empty, update the first item
+        file_name = f'../data/{database_name}_{collection_name}_1.json'
+        with open(file_name, 'r+') as file:
+            data = json.load(file)
+            if len(data) > 0:
+                item_to_update = data[0]  # Get the first item in the collection
+                for key, value in dict_new_data.items():
+                    item_to_update[key] = value
+                file.seek(0)  # Move the file cursor to the beginning before writing
                 json.dump(data, file, indent=2)
-            print('Update successful.')
-            return True
+                file.truncate()  # Truncate the file in case the new content is shorter
+                print('Update successful.')
+                return True
+
+    for i in range(1, existing_file_number+1):
+        file_name = f'../data/{database_name}_{collection_name}_{i}.json'
+        try:
+            with open(file_name, 'r') as file:
+                data = json.load(file)
+        except FileNotFoundError:
+            print(f'File {file_name} not found.')
+            return False
+
+        if len(data) > 0:
+            for item in data:
+                if match_nested_condition(item, dict_condition):
+                    update_nested_item(item, dict_condition, dict_new_data)
+                    with open(file_name, 'w') as file:
+                        json.dump(data, file, indent=2)
+                    print('Update successful.')
+                    return True
+
         else:
             print('Collection is empty. Nothing to update.')
             return False
-
-    for item in data:
-        if match_nested_condition(item, dict_condition):
-            update_nested_item(item, dict_condition, dict_new_data)
-            with open(file_name, 'w') as file:
-                json.dump(data, file, indent=2)
-            return True
 
     print('Item matching condition not found.')
     return False
 
 
-def update_many(database: str, collection: str, condition: str, new_data: str) -> bool:
+def update_many(database_name: str, collection_name: str, condition: str, new_data: str) -> bool:
     """
     Updates multiple items that match the given condition in a collection in a JSON database file.
-    :param database:
-    :param collection:
+    :param database_name:
+    :param collection_name:
     :param condition:
     :param new_data:
     :return: True if the update was successful, False otherwise.
     """
-    file_name = f'../data/{database}_{collection}.json'
+
     try:
-        with open(file_name, 'r') as file:
-            data = json.load(file)
-    except FileNotFoundError:
+        dict_condition = json.loads(condition)
+        dict_new_data = json.loads(new_data)
+    except json.decoder.JSONDecodeError:
+        print('Update failed. Invalid JSON.')
         return False
 
-    dict_condition = json.loads(condition)
-    dict_new_data = json.loads(new_data)
+    existing_file_number = get_last_file_number(database_name, collection_name)
 
-    if not dict_condition:  # Check if the condition is empty
-        if data:
+    updated = False
+
+    for i in range(1, existing_file_number+1):
+        file_name = f'../data/{database_name}_{collection_name}_{i}.json'
+        try:
+            with open(file_name, 'r') as file:
+                data = json.load(file)
+        except FileNotFoundError:
+            print(f'File {file_name} not found.')
+            return False
+
+        if not dict_condition:
             for item in data:
                 for key, value in dict_new_data.items():
                     item[key] = value
             with open(file_name, 'w') as file:
                 json.dump(data, file, indent=2)
-            print('Update successful.')
-            return True
-
-    updated = False
-    for item in data:
-        if match_nested_condition(item, dict_condition):
-            update_nested_item(item, dict_condition, dict_new_data)
             updated = True
 
-    if not updated:
-        print('No items matching the condition found.')
-        return False
-    else:
-        with open(file_name, 'w') as file:
-            json.dump(data, file, indent=2)
+        else:
+            for item in data:
+                if match_nested_condition(item, dict_condition):
+                    update_nested_item(item, dict_condition, dict_new_data)
+            with open(file_name, 'w') as file:
+                json.dump(data, file, indent=2)
+            updated = True
+
+    if updated:
         print('Update successful.')
         return True
 
@@ -371,9 +406,10 @@ if __name__ == '__main__':
     # l_data = '[{"PLAYER_NAME": "John Smith", "TEAM_ID": "0000", "PLAYER_ID": "0000", "SEASON": "2023"}, {"PLAYER_NAME": "John Smith", "TEAM_ID": "0000", "PLAYER_ID": "0000", "SEASON": "2023"}]'
     # insert_many(database, collection, l_data)
     # condition = '{"PLAYER_NAME": "John Smith"}'
-    # delete_one(database, collection, condition)
-    delete_many(database, collection, '{}')
+    # delete_one(database, collection, '{}')
+    # delete_many(database, collection, '{}')
     # delete_many(database, collection, condition)
-    # update_data = '{"key5": "value6"}'
-    # update_many(database, collection, '{}', update_data)
+    update_data = '{"foo": "bar"}'
+    # update_one(database, collection, '{"PLAYER_NAME": "John Smith"}', '{"REGION": "USA"}')
+    update_many(database, collection, '{}', update_data)
     # update_many(database, collection, condition, update_data)
