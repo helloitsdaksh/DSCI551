@@ -1,0 +1,29 @@
+{
+  "databases": [
+    {
+      "name": "basketball",
+      "collections": [
+        {
+          "name": "games",
+          "partition_count": 2
+        },
+        {
+          "name": "players",
+          "partition_count": 1
+        },
+        {
+          "name": "teams",
+          "partition_count": 1
+        },
+        {
+          "name": "ranking",
+          "partition_count": 7
+        },
+        {
+          "name": "test",
+          "partition_count": 2
+        }
+      ]
+    }
+  ]
+}
