@@ -13,6 +13,10 @@ MAX_FILE_SIZE = 100
 
 
 def load_metadata():
+    """
+    Load metadata from a JSON file.
+    :return: database metadata
+    """
     if os.path.exists(METADATA_FILE):
         with open(METADATA_FILE, 'r') as file:
             return json.load(file)
@@ -21,11 +25,24 @@ def load_metadata():
 
 
 def save_metadata(metadata):
+    """
+    Save metadata to a JSON file.
+    :param metadata:
+    :return: None
+    """
     with open(METADATA_FILE, 'w') as file:
         json.dump(metadata, file, indent=2)
 
 
-def update_metadata(database_name: str, collection_name: str, file_number: int):
+def update_metadata(database_name: str, collection_name: str, file_number: int) -> bool:
+    """
+    Update the metadata of a collection in a JSON database file.
+    e.g. adding new data, deleting data, etc.
+    :param database_name:
+    :param collection_name:
+    :param file_number:
+    :return: True if the operation is successful, False otherwise
+    """
     metadata = load_metadata()
 
     for database in metadata.get('databases', []):
@@ -40,6 +57,7 @@ def update_metadata(database_name: str, collection_name: str, file_number: int):
             database['collections'].append({'name': collection_name, 'partition_count': file_number})
             save_metadata(metadata)
             return True
+    return False
 
 
 def get_last_file_number(database_name: str, collection_name: str) -> list or None:
@@ -166,6 +184,7 @@ def match_nested_condition(item: dict, condition: dict) -> bool:
 def delete_one(database_name: str, collection_name: str, condition: dict) -> bool:
     """
     Deletes the first item that matches the given condition from a collection in a JSON database file.
+    Deletes the first item in collection if condition is empty = {}
     :param database_name: The name of the database.
     :param collection_name: The name of the collection within the database.
     :param condition: A dictionary specifying the condition for matching items.
@@ -222,6 +241,7 @@ def delete_one(database_name: str, collection_name: str, condition: dict) -> boo
 def delete_many(database_name: str, collection_name: str, condition: str) -> bool:
     """
     Deletes multiple items that match the given condition from a collection in a JSON database file.
+    Deletes all the items if condition is empty = {}
     ## does not consider a situation where the condition matches all the items in the collection and delete all
     :param database_name: The name of the database.
     :param collection_name: The name of the collection within the database.
@@ -292,6 +312,7 @@ def update_nested_item(item: dict, condition: dict, new_data: dict) -> None:
 def update_one(database_name: str, collection_name: str, condition: str, new_data: str) -> bool:
     """
     Updates a first itme that matches the given condition in a collection in a JSON database file.
+    Update the first item if the condition is empty = {}
     :param database_name:
     :param collection_name:
     :param condition:
@@ -350,6 +371,7 @@ def update_one(database_name: str, collection_name: str, condition: str, new_dat
 def update_many(database_name: str, collection_name: str, condition: str, new_data: str) -> bool:
     """
     Updates multiple items that match the given condition in a collection in a JSON database file.
+    Update all the items if condition is empty = {}
     :param database_name:
     :param collection_name:
     :param condition:
