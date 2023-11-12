@@ -9,8 +9,8 @@ import json
 import os
 
 METADATA_FILE = 'metadata.json'
-MAX_FILE_SIZE = 10000000  # 10 MB
-# MAX_FILE_SIZE = 1000
+# MAX_FILE_SIZE = 10000000  # 10 MB
+MAX_FILE_SIZE = 100
 
 
 def load_metadata():
@@ -117,10 +117,9 @@ def insert_many(database_name: str, collection_name: str, new_data: str) -> bool
 
     existing_file_number = get_last_file_number(database_name, collection_name)
     if existing_file_number is None:
-        existing_data = [json_data]
         file_name = f'../data/{database_name}_{collection_name}_1.json'
         with open(file_name, 'w') as file:
-            json.dump(existing_data, file, indent=2)
+            json.dump(json_data, file, indent=2)
 
         update_metadata(database_name, collection_name, 1)
 
@@ -165,81 +164,99 @@ def match_nested_condition(item: dict, condition: dict) -> bool:
     return True
 
 
-def delete_one(database: str, collection: str, condition: dict) -> bool:
+def delete_one(database_name: str, collection_name: str, condition: dict) -> bool:
     """
     Deletes the first item that matches the given condition from a collection in a JSON database file.
-    :param database: The name of the database.
-    :param collection: The name of the collection within the database.
+    :param database_name: The name of the database.
+    :param collection_name: The name of the collection within the database.
     :param condition: A dictionary specifying the condition for matching items.
     :return: True if the deletion was successful, False otherwise.
     """
-    file_name = f'../data/{database}_{collection}.json'
     try:
-        with open(file_name, 'r') as file:
-            data = json.load(file)
-    except FileNotFoundError:
+        dict_condition = json.loads(condition)
+    except json.decoder.JSONDecodeError:
+        print('Deletion failed. Invalid JSON.')
         return False
 
-    dict_condition = json.loads(condition)
+    existing_file_number = get_last_file_number(database_name, collection_name)
 
-    if not dict_condition:  # Check if the condition is empty
-        if data:
-            item_to_delete = data[0]  # Get the first item in the collection
-            data.remove(item_to_delete)
-            with open(file_name, 'w') as file:
-                json.dump(data, file, indent=2)
-            print('Deletion successful.')
-            return True
+    for i in range(1, existing_file_number+1):
+        file_name = f'../data/{database_name}_{collection_name}_{i}.json'
+        try:
+            with open(file_name, 'r') as file:
+                data = json.load(file)
+        except FileNotFoundError:
+            print(f'File {file_name} not found.')
+            return False
+
+        if len(data) > 0:
+            for item in data:
+                if match_nested_condition(item, dict_condition):
+                    data.remove(item)
+                    with open(file_name, 'w') as file:
+                        json.dump(data, file, indent=2)
+                    print('Deletion successful.')
+                    return True
         else:
             print('Collection is empty. Nothing to delete.')
             return False
-
-    for item in data:
-        if match_nested_condition(item, dict_condition):
-            data.remove(item)
-            with open(file_name, 'w') as file:
-                json.dump(data, file, indent=2)
-            print('Deletion successful.')
-            return True
 
     print('Item matching condition not found.')
     return False
 
 
-def delete_many(database: str, collection: str, condition: str) -> bool:
+def delete_many(database_name: str, collection_name: str, condition: str) -> bool:
     """
     Deletes multiple items that match the given condition from a collection in a JSON database file.
-    :param database: The name of the database.
-    :param collection: The name of the collection within the database.
+    ## does not consider a situation where the condition matches all the items in the collection and delete all
+    :param database_name: The name of the database.
+    :param collection_name: The name of the collection within the database.
     :param condition: The data to be inserted as a JSON object.
     :return: True if the deletion was successful, False otherwise.
     """
-    file_name = f'../data/{database}_{collection}.json'
     try:
-        with open(file_name, 'r') as file:
-            data = json.load(file)
-    except FileNotFoundError:
+        dict_condition = json.loads(condition)
+    except json.decoder.JSONDecodeError:
+        print('Deletion failed. Invalid JSON.')
         return False
 
-    dict_condition = json.loads(condition)
+    existing_file_number = get_last_file_number(database_name, collection_name)
 
-    if not dict_condition:  # Check if the condition is empty
-        with open(file_name, 'w') as file:
-            json.dump([], file, indent=2)  # Empty the file
-        print('All data deleted.')
-        return True
+    deleted = False
 
-    # Find the items that match the condition
-    to_keep = [item for item in data if not match_nested_condition(item, dict_condition)]
+    for i in range(1, existing_file_number + 1):
+        file_name = f'../data/{database_name}_{collection_name}_{i}.json'
+        try:
+            with open(file_name, 'r') as file:
+                data = json.load(file)
+        except FileNotFoundError:
+            print(f'File {file_name} not found.')
+            return False
 
-    if len(data) == len(to_keep):
-        print('No items matching the condition found.')
-        return False
-    else:
-        with open(file_name, 'w') as file:
-            json.dump(to_keep, file, indent=2)
+        if not dict_condition:  # Check if the condition is empty
+            if i > 1:
+                os.remove(file_name)
+            else:
+                with open(file_name, 'w') as file:
+                    json.dump([], file, indent=2)  # Empty the file
+                update_metadata(database_name, collection_name, 1)
+            deleted = True
+
+        else:
+            to_keep = [item for item in data if not match_nested_condition(item, dict_condition)]
+            if len(data) == len(to_keep):
+                continue
+            else:
+                with open(file_name, 'w') as file:
+                    json.dump(to_keep, file, indent=2)
+                deleted = True
+
+    if deleted:
         print('Deletion successful.')
         return True
+    else:
+        print('Item matching condition not found.')
+        return False
 
 
 def update_nested_item(item: dict, condition: dict, new_data: dict) -> None:
@@ -351,11 +368,11 @@ if __name__ == '__main__':
     collection = 'test'
     # new_data = '{"PLAYER_NAME": "John Smith", "TEAM_ID": "0000", "PLAYER_ID": "0000", "SEASON": "2023"}'
     # insert_one(database, collection, new_data)
-    l_data = '[{"PLAYER_NAME": "John Smith", "TEAM_ID": "0000", "PLAYER_ID": "0000", "SEASON": "2023"}, {"PLAYER_NAME": "John Smith", "TEAM_ID": "0000", "PLAYER_ID": "0000", "SEASON": "2023"}]'
-    insert_many(database, collection, l_data)
-    # condition = '{"key3": "value3"}'
+    # l_data = '[{"PLAYER_NAME": "John Smith", "TEAM_ID": "0000", "PLAYER_ID": "0000", "SEASON": "2023"}, {"PLAYER_NAME": "John Smith", "TEAM_ID": "0000", "PLAYER_ID": "0000", "SEASON": "2023"}]'
+    # insert_many(database, collection, l_data)
+    # condition = '{"PLAYER_NAME": "John Smith"}'
     # delete_one(database, collection, condition)
-    # delete_many(database, collection, '{}')
+    delete_many(database, collection, '{}')
     # delete_many(database, collection, condition)
     # update_data = '{"key5": "value6"}'
     # update_many(database, collection, '{}', update_data)
