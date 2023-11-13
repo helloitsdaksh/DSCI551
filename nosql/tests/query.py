@@ -56,36 +56,39 @@ def get_last_file_number(metadata_file, database_name: str, collection_name: str
 #         return None
 
 
-def filter_by_value(data, target, condition, value):
+def filter_by_values(data, conditions: list[dict]) -> list:
     """
-    Get all items in a collection that have a value satisfying the given condition.
+    Get all items in a collection that satisfy multiple given conditions.
 
     :param data: dictionary or list of items.
-    :param target: Name of the target field.
-    :param condition: Comparison operator (e.g., gt, lt, gte, lte, eq, ne, in).
-    :param value: Value to compare.
-    :return: Generator yielding items that satisfy the condition.
+    :param conditions: List of conditions, each a dict with 'target', 'condition', and 'value'. Example: conditions = [
+    {'target': 'columnA', 'condition': 'gt', 'value': 1}, {'target': 'columnB', 'condition': 'eq', 'value': 'Foo'}]
+    :return: Generator yielding items that satisfy all the conditions.
     """
 
-    conditions = {
-        'gt': lambda x: x > value,
-        'lt': lambda x: x < value,
-        'gte': lambda x: x >= value,
-        'lte': lambda x: x <= value,
-        'eq': lambda x: x == value,
-        'ne': lambda x: x != value,
-        'in': lambda x: value in x
+    condition_functions = {
+        'gt': lambda x, v: x > v,
+        'lt': lambda x, v: x < v,
+        'gte': lambda x, v: x >= v,
+        'lte': lambda x, v: x <= v,
+        'eq': lambda x, v: x == v,
+        'ne': lambda x, v: x != v,
+        'in': lambda x, v: v in x
     }
 
-    condition_function = conditions.get(condition)
-    if condition_function is None:
-        print('Invalid condition.')
-        return False
+    def item_satisfies_conditions(item):
+        for condition in conditions:
+            target, operator, value = condition['target'], condition['condition'], condition['value']
+            condition_function = condition_functions.get(operator)
+            if condition_function is None:
+                raise ValueError(f'Invalid condition: {operator}')
 
-    for item in data:
-        target_value = item.get(target)
-        if target_value is not None and condition_function(target_value):
-            yield item
+            target_value = item.get(target)
+            if target_value is None or not condition_function(target_value, value):
+                return False
+        return True
+
+    return [item for item in data if item_satisfies_conditions(item)]
 
 
 def _sort_and_write_chunk(file_name: str, sort_key: str | list[str], reverse=False):
@@ -181,7 +184,7 @@ def execute_external_sort(input_files: list[str], sort_key: str, reverse=False):
         os.remove(temp_file)
 
 
-def save_json_items_to_tempfile(input_file_path):
+def save_json_items_to_tempfile(input_file_path: str) -> str:
     """
     Reads a JSON file and writes its items to a temporary file, one item per line.
     This is for testing purposes.
@@ -205,7 +208,14 @@ def save_json_items_to_tempfile(input_file_path):
     return temp_file.name
 
 
-def partial_aggregate(temp_file_name, group_keys, targets):
+def partial_aggregate(temp_file_name: str, group_keys: str | list[str] , targets: dict | list[dict]) -> dict:
+    """
+    Performs partial aggregation on a JSON file. It groups the data based on the specified keys and performs
+    :param temp_file_name:
+    :param group_keys:
+    :param targets:
+    :return:
+    """
     grouped_data = defaultdict(lambda: {target: [] for target in targets})
 
     with open(temp_file_name, 'r') as file:
@@ -240,7 +250,13 @@ def partial_aggregate(temp_file_name, group_keys, targets):
     return partial_result
 
 
-def final_aggregate(partial_results, targets):
+def final_aggregate(partial_results: list[dict], targets: dict | list[dict]) -> dict:
+    """
+    Performs final aggregation on partial results.
+    :param partial_results:
+    :param targets:
+    :return:
+    """
     final_result = defaultdict(lambda: {target: {'sum': 0, 'count': 0, 'values': []} for target in targets})
 
     for partial in partial_results:
