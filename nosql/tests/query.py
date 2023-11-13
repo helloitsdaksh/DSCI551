@@ -31,7 +31,7 @@ class DataQueryManager:
         else:
             return {}
 
-    def _get_last_file_number(self, database_name: str, collection_name: str) -> list or None:
+    def get_last_file_number(self, database_name: str, collection_name: str) -> list or None:
         """
         Returns the last file number of a collection in a JSON database file.
         :param database_name: The name of the database.
@@ -138,6 +138,10 @@ class DataQueryManager:
     def _merge_sorted_files(self, sorted_files: list, sort_key: str | list[str], reverse=False):
         """
         Merges sorted JSON files into a single sorted JSON file
+        1. The first item from each sorted file will be pushed to the heap
+        2. The smallest item from the heap will be popped and printed to the console
+        3. The next item from the same file will be pushed to the heap
+        4. The process continues until all items have been processed
         :param sorted_files:
         :param sort_key: string or list of strings representing the keys to sort on
         :param reverse: False for ascending order, True for descending order (default: False)
@@ -180,49 +184,105 @@ class DataQueryManager:
         for temp_file in sorted_files:
             os.remove(temp_file)
 
-    def group_by(self, data, group_keys, target, aggregation):
+    def save_json_items_to_tempfile(self, input_file_path):
         """
-        Group by operation on a collection.
-        THIS FUNCTION ALSO AGGREGATES FOR MISSING OR NULL VALUES.
-        :param data: dictionary or list of items.
-        :param group_keys: Fields to group by.
-        :param target: Field to aggregate.
-        :param aggregation: Aggregation function (e.g., 'sum', 'avg', 'count', 'max', 'min').
-        :return: Dictionary containing the grouped and aggregated results.
+        Reads a JSON file and writes its items to a temporary file, one item per line.
+        This is for testing purposes.
+        It can be also used to pass jsonlines as input to operations.
+        :param input_file_path: Path to the input JSON file.
+        :return: Path to the created temporary file.
         """
+        # Read the input file
+        with open(input_file_path, 'r') as file:
+            data = json.load(file)
 
-        if data is None:
-            return False
+        # Create a temporary file
+        temp_file = tempfile.NamedTemporaryFile(delete=False, mode='w')
 
+        # Write each JSON item on a separate line
+        for item in data:
+            json.dump(item, temp_file)
+            temp_file.write('\n')
+
+        temp_file.close()
+        return temp_file.name
+
+    def partial_aggregate(self, temp_file_name, group_keys, target, aggregation):
+        """
+        Performs partial aggregation on a temporary file.
+        :param temp_file_name:
+        :param group_keys:
+        :param target:
+        :param aggregation:
+        :return:
+        """
         grouped_data = defaultdict(lambda: {'values': []})
 
-        for record in data:
-            group_key_values = tuple(record[key] for key in group_keys) if isinstance(group_keys, list) else (
-            record[group_keys],)
-            grouped_data[group_key_values]['values'].append(record[target])
+        with open(temp_file_name, 'r') as file:
+            for line in file:
+                record = json.loads(line.strip())
+                group_key_values = tuple(record[key] for key in group_keys) if isinstance(group_keys, list) else (
+                record[group_keys],)
+                if target in record:
+                    grouped_data[group_key_values]['values'].append(record[target])
 
-        result = {}
+        # Perform partial aggregation
+        partial_result = {}
         for group_key, group in grouped_data.items():
             values = group['values']
             if aggregation == 'sum':
-                result[group_key] = sum(values)
+                partial_result[group_key] = sum(values)
             elif aggregation == 'avg':
-                result[group_key] = sum(values) / len(values) if len(values) > 0 else 0
+                partial_result[group_key] = (sum(values), len(values))  # Store sum and count for average calculation
             elif aggregation == 'count':
-                result[group_key] = len(values)
+                partial_result[group_key] = len(values)
             elif aggregation == 'max':
-                result[group_key] = max(values)
+                partial_result[group_key] = max(values)
             elif aggregation == 'min':
-                result[group_key] = min(values)
+                partial_result[group_key] = min(values)
             else:
-                return False  # Unsupported aggregation function
+                raise ValueError("Unsupported aggregation function")
 
-        return result
+        return partial_result
+
+    def final_aggregate(self, partial_results: list, aggregation: str):
+        """
+        Performs final aggregation on partial results.
+        :param partial_results:
+        :param aggregation:
+        :return:
+        """
+        final_result = defaultdict(lambda: {'sum': 0, 'count': 0, 'values': []})
+
+        for partial in partial_results:
+            for group_key, value in partial.items():
+                if aggregation in ['sum', 'count']:
+                    final_result[group_key]['sum'] += value
+                elif aggregation == 'avg':
+                    final_result[group_key]['sum'] += value[0]
+                    final_result[group_key]['count'] += value[1]
+                elif aggregation == 'max':
+                    final_result[group_key]['values'].append(value)
+                elif aggregation == 'min':
+                    final_result[group_key]['values'].append(value)
+
+        # Calculate final aggregated values
+        for group_key, data in final_result.items():
+            if aggregation == 'avg':
+                final_result[group_key] = data['sum'] / data['count'] if data['count'] > 0 else 0
+            elif aggregation in ['max', 'min']:
+                final_result[group_key] = max(data['values']) if aggregation == 'max' else min(data['values'])
+            else:
+                final_result[group_key] = data['sum']
+
+        formatted_data = {key[0] if len(key) == 1 else key: value for key, value in final_result.items()}
+
+        return formatted_data
 
 
 if __name__ == '__main__':
-    database = 'sample'
-    # collection = 'sample'
+    database = 'basketball'
+    collection = 'games'
     query_manager = DataQueryManager(database)
     # test filtering
     # target = 'artist(s)_name'
@@ -233,18 +293,18 @@ if __name__ == '__main__':
     #     print(item)
 
     # test group_by
-    # group_key = ['key', 'mode']
-    # target = 'bpm'
-    # aggregation = 'count'
-    # result = query_manager.group_by(collection, group_key, target, aggregation)
-    # print(result)
+    group_key = ['SEASON', 'HOME_TEAM_ID']
+    target = 'GAME_ID'
+    aggregation = 'count'
+    file_number = query_manager.get_last_file_number(database, collection)
+    input_files = [f'../data/{database}_{collection}_{i}.json' for i in range(1, file_number+1)]
+    temp_files = [query_manager.save_json_items_to_tempfile(input_file) for input_file in input_files]
+    partial_results = [query_manager.partial_aggregate(temp_file, group_key, target, aggregation) for temp_file in temp_files]
+    result = query_manager.final_aggregate(partial_results, aggregation)
+    print(result)
 
     # test sort_by
-    # target = 'bpm'
-    # result = sort_by(database, collection, target, ascending=True)
-    # print(result)
-
-    input_files = ['../data/sample_test.json', '../data/sample_test_2.json']
-    output_file = '../data/sample_test_sorted.json'
-    sort_key = ['key1', 'key2']
-    query_manager.execute_external_sort(input_files, sort_key)
+    # input_files = ['../data/sample_test.json', '../data/sample_test_2.json']
+    # output_file = '../data/sample_test_sorted.json'
+    # sort_key = ['key1', 'key2']
+    # query_manager.execute_external_sort(input_files, sort_key)
