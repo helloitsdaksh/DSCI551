@@ -6,10 +6,12 @@ import json
 import os
 import tempfile
 import heapq
-import sys
 from collections import defaultdict
 
 
+# -------------------------------------------
+# Database and Collection Operations
+# -------------------------------------------
 def _load_metadata(metadata_file):
     """
     Load metadata from a JSON file.
@@ -40,20 +42,20 @@ def get_last_file_number(metadata_file, database_name: str, collection_name: str
     except KeyError:
         return None
 
-# def _load_data(self, collection_name):
-#     """
-#     Load data from a specified collection in the database.
-#
-#     :param collection_name: Name of the collection.
-#     :return: Loaded data as a list or None if the file is not found.
-#     """
-#     file_name = f'../data/{self.database_name}_{collection_name}.json'
-#     try:
-#         with open(file_name, 'r') as file:
-#             data = json.load(file)
-#         return data
-#     except FileNotFoundError:
-#         return None
+
+# -------------------------------------------
+# Data Filtering and Selection
+# -------------------------------------------
+
+def select_fields(record, fields):
+    """
+    Selects specified fields from a single JSON record.
+    :param record: A single JSON record (a dictionary).
+    :param fields: List of fields to select from the record.
+    :return: A dictionary with only the selected fields.
+    """
+    # Select only the specified fields
+    return {field: record[field] for field in fields if field in record}
 
 
 def filter_by_values(data, conditions: list[dict]) -> list:
@@ -91,6 +93,9 @@ def filter_by_values(data, conditions: list[dict]) -> list:
     return [item for item in data if item_satisfies_conditions(item)]
 
 
+# -------------------------------------------
+# Sorting Operations
+# -------------------------------------------
 def _sort_and_write_chunk(file_name: str, sort_key: str | list[str], reverse=False):
     """
     Sorts and writes a chunk of data to a temporary file.
@@ -184,29 +189,9 @@ def execute_external_sort(input_files: list[str], sort_key: str, reverse=False):
         os.remove(temp_file)
 
 
-def save_json_items_to_tempfile(input_file_path: str) -> str:
-    """
-    Reads a JSON file and writes its items to a temporary file, one item per line.
-    This is for testing purposes.
-    It can be also used to pass jsonlines as input to operations.
-    :param input_file_path: Path to the input JSON file.
-    :return: Path to the created temporary file.
-    """
-    # Read the input file
-    with open(input_file_path, 'r') as file:
-        data = json.load(file)
-
-    # Create a temporary file
-    temp_file = tempfile.NamedTemporaryFile(delete=False, mode='w')
-
-    # Write each JSON item on a separate line
-    for item in data:
-        json.dump(item, temp_file)
-        temp_file.write('\n')
-
-    temp_file.close()
-    return temp_file.name
-
+# -------------------------------------------
+# Aggregation Functions
+# -------------------------------------------
 
 def partial_aggregate(temp_file_name: str, group_keys: str | list[str] , targets: dict | list[dict]) -> dict:
     """
@@ -288,15 +273,31 @@ def final_aggregate(partial_results: list[dict], targets: dict | list[dict]) -> 
     return formatted_data
 
 
-def select_fields(record, fields):
+# -------------------------------------------
+# Utility Functions
+# -------------------------------------------
+def save_json_items_to_tempfile(input_file_path: str) -> str:
     """
-    Selects specified fields from a single JSON record.
-    :param record: A single JSON record (a dictionary).
-    :param fields: List of fields to select from the record.
-    :return: A dictionary with only the selected fields.
+    Reads a JSON file and writes its items to a temporary file, one item per line.
+    This is for testing purposes.
+    It can be also used to pass jsonlines as input to operations.
+    :param input_file_path: Path to the input JSON file.
+    :return: Path to the created temporary file.
     """
-    # Select only the specified fields
-    return {field: record[field] for field in fields if field in record}
+    # Read the input file
+    with open(input_file_path, 'r') as file:
+        data = json.load(file)
+
+    # Create a temporary file
+    temp_file = tempfile.NamedTemporaryFile(delete=False, mode='w')
+
+    # Write each JSON item on a separate line
+    for item in data:
+        json.dump(item, temp_file)
+        temp_file.write('\n')
+
+    temp_file.close()
+    return temp_file.name
 
 
 if __name__ == '__main__':
