@@ -8,8 +8,8 @@ import json
 import os
 
 METADATA_FILE = 'metadata.json'
-# MAX_FILE_SIZE = 10000000  # 10 MB
-MAX_FILE_SIZE = 100
+MAX_FILE_SIZE = 4000000  # 4MB
+# MAX_FILE_SIZE = 100
 
 
 def load_metadata():
@@ -79,6 +79,12 @@ def get_last_file_number(database_name: str, collection_name: str) -> list or No
         return None
 
 
+def calculate_data_size(data):
+    json_string = json.dumps(data)
+    byte_data = json_string.encode('utf-8')
+    return len(byte_data)
+
+
 def insert_one(database_name: str, collection_name: str, new_data: str) -> bool:
     """
     Inserts a single item into a collection in a JSON database file.
@@ -103,16 +109,18 @@ def insert_one(database_name: str, collection_name: str, new_data: str) -> bool:
         update_metadata(database_name, collection_name, 1)
 
     else:
-        with open(f'../data/{database_name}_{collection_name}_{existing_file_number}.json', 'r') as file:
+        with open(f'data/{database_name}_{collection_name}_{existing_file_number}.json', 'r') as file:
             existing_data = json.load(file)
+            existing_data_size = calculate_data_size(existing_data)
+            new_data_size = calculate_data_size(json_data)
 
-        if len(existing_data) + len(json_data) >= MAX_FILE_SIZE:
-            with open(f'../data/{database_name}_{collection_name}_{existing_file_number+1}.json', 'w') as new_file:
+        if existing_data_size + new_data_size >= MAX_FILE_SIZE:
+            with open(f'data/{database_name}_{collection_name}_{existing_file_number+1}.json', 'w') as new_file:
                 json.dump([json_data], new_file, indent=2)
             update_metadata(database_name, collection_name, existing_file_number+1)
         else:
             existing_data.append(json_data)
-            with open(f'../data/{database_name}_{collection_name}_{existing_file_number}.json', 'w') as file:
+            with open(f'data/{database_name}_{collection_name}_{existing_file_number}.json', 'w') as file:
                 json.dump(existing_data, file, indent=2)
 
     return True
@@ -141,25 +149,27 @@ def insert_many(database_name: str, collection_name: str, new_data: str) -> bool
         update_metadata(database_name, collection_name, 1)
 
     else:
-        with open(f'../data/{database_name}_{collection_name}_{existing_file_number}.json', 'r') as file:
+        with open(f'data/{database_name}_{collection_name}_{existing_file_number}.json', 'r') as file:
             existing_data = json.load(file)
+            existing_data_size = calculate_data_size(existing_data)
+            new_data_size = calculate_data_size(json_data)
 
-        if len(existing_data) + len(json_data) >= MAX_FILE_SIZE:
+        if existing_data_size + new_data_size >= MAX_FILE_SIZE:
             update_metadata(database_name, collection_name, existing_file_number+1)
             overflow_data = []
             for item in json_data:
-                if len(existing_data) + len(item) >= MAX_FILE_SIZE:
+                if existing_data_size + calculate_data_size(item) >= MAX_FILE_SIZE:
                     overflow_data.append(item)
                 else:
                     existing_data.append(item)
-            with open(f'../data/{database_name}_{collection_name}_{existing_file_number+1}.json', 'w') as file:
+            with open(f'data/{database_name}_{collection_name}_{existing_file_number+1}.json', 'w') as file:
                 json.dump(overflow_data, file, indent=2)
-            with open(f'../data/{database_name}_{collection_name}_{existing_file_number}.json', 'w') as file:
+            with open(f'data/{database_name}_{collection_name}_{existing_file_number}.json', 'w') as file:
                 json.dump(existing_data, file, indent=2)
 
         else:
             existing_data.extend(json_data)
-            with open(f'../data/{database_name}_{collection_name}_{existing_file_number}.json', 'w') as file:
+            with open(f'data/{database_name}_{collection_name}_{existing_file_number}.json', 'w') as file:
                 json.dump(existing_data, file, indent=2)
 
     return True
@@ -181,7 +191,7 @@ def match_nested_condition(item: dict, condition: dict) -> bool:
     return True
 
 
-def delete_one(database_name: str, collection_name: str, condition: dict) -> bool:
+def delete_one(database_name: str, collection_name: str, condition: str) -> bool:
     """
     Deletes the first item that matches the given condition from a collection in a JSON database file.
     Deletes the first item in collection if condition is empty = {}
@@ -199,7 +209,7 @@ def delete_one(database_name: str, collection_name: str, condition: dict) -> boo
     existing_file_number = get_last_file_number(database_name, collection_name)
 
     if not dict_condition: # if condition is empty, delete first item
-        file_name = f'../data/{database_name}_{collection_name}_1.json'
+        file_name = f'data/{database_name}_{collection_name}_1.json'
         with open(file_name, 'r+') as file:
             data = json.load(file)
             if len(data) > 0:
@@ -214,7 +224,7 @@ def delete_one(database_name: str, collection_name: str, condition: dict) -> boo
 
     else:
         for i in range(1, existing_file_number+1):
-            file_name = f'../data/{database_name}_{collection_name}_{i}.json'
+            file_name = f'data/{database_name}_{collection_name}_{i}.json'
             try:
                 with open(file_name, 'r') as file:
                     data = json.load(file)
@@ -259,7 +269,7 @@ def delete_many(database_name: str, collection_name: str, condition: str) -> boo
     deleted = False
 
     for i in range(1, existing_file_number + 1):
-        file_name = f'../data/{database_name}_{collection_name}_{i}.json'
+        file_name = f'data/{database_name}_{collection_name}_{i}.json'
         try:
             with open(file_name, 'r') as file:
                 data = json.load(file)
@@ -329,7 +339,7 @@ def update_one(database_name: str, collection_name: str, condition: str, new_dat
     existing_file_number = get_last_file_number(database_name, collection_name)
 
     if not dict_condition:  # if condition is empty, update the first item
-        file_name = f'../data/{database_name}_{collection_name}_1.json'
+        file_name = f'data/{database_name}_{collection_name}_1.json'
         with open(file_name, 'r+') as file:
             data = json.load(file)
             if len(data) > 0:
@@ -343,7 +353,7 @@ def update_one(database_name: str, collection_name: str, condition: str, new_dat
                 return True
 
     for i in range(1, existing_file_number+1):
-        file_name = f'../data/{database_name}_{collection_name}_{i}.json'
+        file_name = f'data/{database_name}_{collection_name}_{i}.json'
         try:
             with open(file_name, 'r') as file:
                 data = json.load(file)
@@ -391,7 +401,7 @@ def update_many(database_name: str, collection_name: str, condition: str, new_da
     updated = False
 
     for i in range(1, existing_file_number+1):
-        file_name = f'../data/{database_name}_{collection_name}_{i}.json'
+        file_name = f'data/{database_name}_{collection_name}_{i}.json'
         try:
             with open(file_name, 'r') as file:
                 data = json.load(file)

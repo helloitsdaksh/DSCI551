@@ -141,7 +141,7 @@ def execute_query(database, query):
         return
 
     file_number = get_last_file_number(METADATA_FILE, database, table)
-    input_files = [f'../data/{database}_{table}_{i}.json' for i in range(1, file_number + 1)]
+    input_files = [f'data/{database}_{table}_{i}.json' for i in range(1, file_number + 1)]
     intermediate_results = [save_json_items_to_tempfile(input_file) for input_file in input_files]
 
     try:
@@ -167,5 +167,6 @@ def execute_query(database, query):
                 os.remove(temp_file)
 
 
-query = "GET season, player, age FROM players FILTER season = '2024' AND age >= 32 SORT age"
-execute_query('nba', query)
+if __name__ == '__main__':
+    query = "GET season, player, age FROM players FILTER season = '2024' AND age >= 32 SORT age"
+    execute_query('nba', query)
