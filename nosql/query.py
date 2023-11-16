@@ -47,24 +47,50 @@ def get_last_file_number(metadata_file, database_name: str, collection_name: str
 # Data Filtering and Selection
 # -------------------------------------------
 
-def select_fields(record, fields):
+def select_fields(temp_file, fields, last_operation: bool = True):
     """
     Selects specified fields from a single JSON record.
-    :param record: A single JSON record (a dictionary).
+    :param temp_file: Path to temporary file.
     :param fields: List of fields to select from the record.
+    :param last_operation: Whether the operation is the last operation in the pipeline.
     :return: A dictionary with only the selected fields.
     """
-    # Select only the specified fields
-    return {field: record[field] for field in fields if field in record}
+    new_temp_file = tempfile.NamedTemporaryFile(delete=False, mode='w')
+
+    with open(temp_file, 'r') as file:
+        for line in file:
+            data = json.loads(line)
+            selected_data = {field: data[field] for field in fields}
+            if last_operation:
+                yield selected_data
+            else:
+                new_temp_file.write(json.dumps(selected_data) + '\n')
+
+    os.remove(temp_file)
+    new_temp_file.close()
+    if last_operation:
+        return
+    return new_temp_file.name
 
 
-def filter_by_values(data, conditions: list[dict]) -> list:
+def select_record_fields(record, fields):
+    selected_record = {field: record[field] for field in fields}
+    return selected_record
+
+
+def filter_by_values(temp_file, conditions) -> str:
     """
     Get all items in a collection that satisfy multiple given conditions.
 
-    :param data: dictionary or list of items.
-    :param conditions: List of conditions, each a dict with 'target', 'condition', and 'value'. Example: conditions = [
-    {'target': 'columnA', 'condition': 'gt', 'value': 1}, {'target': 'columnB', 'condition': 'eq', 'value': 'Foo'}]
+    :param temp_file: Path to temporary file.
+    :param conditions: Nested list of conditions or groups of conditions. Example: conditions =  {
+        'operator': 'AND', 'conditions': [
+            {'target': 'columnA', 'condition': 'gt', 'value': 1},
+            {'operator': 'OR', 'conditions': [
+                {'target': 'columnB', 'condition': 'eq', 'value': 'Foo'},
+                {'target': 'columnC', 'condition': 'lt', 'value': 10}
+            ]}
+        ]}
     :return: Generator yielding items that satisfy all the conditions.
     """
 
@@ -75,22 +101,46 @@ def filter_by_values(data, conditions: list[dict]) -> list:
         'lte': lambda x, v: x <= v,
         'eq': lambda x, v: x == v,
         'ne': lambda x, v: x != v,
-        'in': lambda x, v: v in x
+        'in': lambda x, v: x in v,
     }
 
-    def item_satisfies_conditions(item):
-        for condition in conditions:
-            target, operator, value = condition['target'], condition['condition'], condition['value']
-            condition_function = condition_functions.get(operator)
-            if condition_function is None:
-                raise ValueError(f'Invalid condition: {operator}')
+    def evaluate_condition(item, condition):
+        target, operator, value = condition['target'], condition['condition'], condition['value']
+        condition_function = condition_functions.get(operator)
+        if condition_function is None:
+            raise ValueError(f'Invalid condition: {operator}')
 
-            target_value = item.get(target)
-            if target_value is None or not condition_function(target_value, value):
-                return False
-        return True
+        target_value = item.get(target)
+        try:
+            return target_value is not None and condition_function(target_value, value)
+        except TypeError:
+            return False
 
-    return [item for item in data if item_satisfies_conditions(item)]
+    def item_satisfies_conditions(item, conditions):
+        if 'operator' in conditions and 'conditions' in conditions:
+            operator = conditions['operator'].upper()
+            sub_conditions = conditions['conditions']
+
+            if operator == 'AND':
+                return all(item_satisfies_conditions(item, cond) for cond in sub_conditions)
+            elif operator == 'OR':
+                return any(item_satisfies_conditions(item, cond) for cond in sub_conditions)
+            else:
+                raise ValueError(f'Invalid logical operator: {operator}')
+        else:
+            return evaluate_condition(item, conditions)
+
+    with open(temp_file, 'r') as file:
+        new_temp_file = tempfile.NamedTemporaryFile(delete=False, mode='w')
+        for line in file:
+            data = json.loads(line)
+            if item_satisfies_conditions(data, conditions):
+                json.dump(data, new_temp_file)
+                new_temp_file.write('\n')  # Write each JSON object on a new line
+        new_temp_file.close()
+
+    os.remove(temp_file)
+    return new_temp_file.name
 
 
 # -------------------------------------------
@@ -104,8 +154,12 @@ def _sort_and_write_chunk(file_name: str, sort_key: str | list[str], reverse=Fal
     :param reverse:
     :return:
     """
+    data = []
+
+    # Read data from JSON lines file
     with open(file_name, 'r') as file:
-        data = json.load(file)
+        for line in file:
+            data.append(json.loads(line))
 
     if isinstance(sort_key, list):
         data.sort(key=lambda x: tuple(x[k] for k in sort_key), reverse=reverse)
@@ -160,10 +214,14 @@ def _merge_sorted_files(sorted_files: list, sort_key: str | list[str], reverse=F
             data = json.loads(line)
             _push_to_heap(heap, file_index, data, sort_key, reverse)
 
+    # Creating a temporary file to write the merged results
+    merged_file = tempfile.NamedTemporaryFile(delete=False, mode='w')
+
     # Merge process
     while heap:
         _, file_index, smallest = heapq.heappop(heap)
-        print(json.dumps(smallest))  # Print each merged item to the console
+        json.dump(smallest, merged_file)
+        merged_file.write('\n')
 
         # Read next element from the same file
         line = files[file_index].readline().strip()
@@ -175,6 +233,9 @@ def _merge_sorted_files(sorted_files: list, sort_key: str | list[str], reverse=F
     for file in files:
         file.close()
 
+    merged_file.close()
+    return merged_file.name
+
 
 def execute_external_sort(input_files: list[str], sort_key: str, reverse=False):
     """
@@ -184,9 +245,11 @@ def execute_external_sort(input_files: list[str], sort_key: str, reverse=False):
     :return:
     """
     sorted_files = [_sort_and_write_chunk(file_name, sort_key, reverse=reverse) for file_name in input_files]
-    _merge_sorted_files(sorted_files, sort_key, reverse=reverse)
+    merged_file = _merge_sorted_files(sorted_files, sort_key, reverse=reverse)
     for temp_file in sorted_files:
         os.remove(temp_file)
+
+    return merged_file
 
 
 # -------------------------------------------
@@ -303,7 +366,6 @@ def save_json_items_to_tempfile(input_file_path: str) -> str:
 if __name__ == '__main__':
     metadata_file = 'metadata.json'
     database = 'basketball'
-    collection = 'games'
     # test filtering
     # target = 'artist(s)_name'
     # condition = 'eq'
@@ -313,17 +375,50 @@ if __name__ == '__main__':
     #     print(item)
 
     # test group_by
-    group_key = ['SEASON', 'HOME_TEAM_ID']
-    targets = {'GAME_ID': 'count'}
-    file_number = get_last_file_number(metadata_file, database, collection)
-    input_files = [f'../data/{database}_{collection}_{i}.json' for i in range(1, file_number+1)]
-    temp_files = [save_json_items_to_tempfile(input_file) for input_file in input_files]
-    partial_results = [partial_aggregate(temp_file, group_key, targets) for temp_file in temp_files]
-    result = final_aggregate(partial_results, targets)
-    print(result)
+    # group_key = ['SEASON', 'HOME_TEAM_ID']
+    # targets = {'GAME_ID': 'count'}
+    # file_number = get_last_file_number(metadata_file, database, collection)
+    # input_files = [f'../data/{database}_{collection}_{i}.json' for i in range(1, file_number+1)]
+    # temp_files = [save_json_items_to_tempfile(input_file) for input_file in input_files]
+    # partial_results = [partial_aggregate(temp_file, group_key, targets) for temp_file in temp_files]
+    # result = final_aggregate(partial_results, targets)
+    # print(result)
 
     # test sort_by
     # input_files = ['../data/sample_test.json', '../data/sample_test_2.json']
     # output_file = '../data/sample_test_sorted.json'
     # sort_key = ['key1', 'key2']
     # query_manager.execute_external_sort(input_files, sort_key)
+
+    # SEARCH player_name IN players FILTER season = '2018' LIMIT 10
+    # collection = 'players'
+    # file_number = get_last_file_number(metadata_file, database, collection)
+    # input_files = [f'../data/{database}_{collection}_{i}.json' for i in range(1, file_number + 1)]
+    # temp_files = [save_json_items_to_tempfile(input_file) for input_file in input_files]
+    # filter_results = [filter_by_values(temp_file, [{'target': 'season', 'condition': 'eq', 'value': '2018'}]) for temp_file in temp_files]
+    # results = [select_fields(filter_result, ['player_name', 'season'], last_operation=True) for filter_result in filter_results]
+    # limit = 10
+    # count = 0
+    # for result in results:
+    #     for item in result:
+    #         count += 1
+    #         print(item)
+    #         if count >= limit:
+    #             break
+
+    # SEARCH game_id, points IN games FILTER pts_home > 130 LIMIT 10
+    # collection = 'games'
+    # file_number = get_last_file_number(metadata_file, database, collection)
+    # input_files = [f'../data/{database}_{collection}_{i}.json' for i in range(1, file_number + 1)]
+    # temp_files = [save_json_items_to_tempfile(input_file) for input_file in input_files]
+    # filter_results = [filter_by_values(temp_file, [{'target': 'pts_home', 'condition': 'gt', 'value': 130}]) for temp_file in temp_files]
+    # results = [select_fields(filter_result, ['game_id', 'pts_home'], last_operation=True) for filter_result in filter_results]
+    # limit = 10
+    # count = 0
+    # for result in results:
+    #     for item in result:
+    #         count += 1
+    #         print(item)
+    #         if count >= limit:
+    #             break
+
