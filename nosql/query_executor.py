@@ -16,7 +16,7 @@ def parse_query(query):
         get_index = parts_lower.index("get")
         from_index = parts_lower.index("from")
     except ValueError:
-        return None, None, None, None, None, None
+        return None, None, None, None, None, None, None
 
     filter_index = parts_lower.index("filter") if "filter" in parts_lower else None
     group_index = parts_lower.index("group") if "group" in parts_lower else None
@@ -27,6 +27,7 @@ def parse_query(query):
     group_by = []
     sort_by = []
     limit = None
+    reverse = False
 
     # Extracting GET clause
     columns = ' '.join(parts[get_index + 1:from_index]).replace(',', '').split()
@@ -58,13 +59,19 @@ def parse_query(query):
     if sort_index:
         sort_end = limit_index or len(parts)
         sort_by = ' '.join(parts[sort_index + 1:sort_end]).replace(',', '').split()
-    print()
+        sort_by_lower = [item.lower() for item in sort_by]
+        reverse = "desc" in sort_by_lower
+
+        if "desc" in sort_by_lower:
+            sort_by.remove("DESC") if "DESC" in sort_by else sort_by.remove("desc")
+        elif "asc" in sort_by_lower:
+            sort_by.remove("ASC") if "ASC" in sort_by else sort_by.remove("asc")
 
     # Extracting LIMIT clause
     if limit_index:
         limit = int(parts[limit_index + 1])
 
-    return columns, table, conditions, group_by, sort_by, limit
+    return columns, table, conditions, group_by, sort_by, reverse, limit
 
 
 def convert_to_nested_format(condition_list):
@@ -131,7 +138,7 @@ def convert_to_nested_format(condition_list):
 
 def execute_query(database, query):
     try:
-        columns, table, conditions, group_by, sort_by, limit = parse_query(query)
+        columns, table, conditions, group_by, sort_by, reverse, limit = parse_query(query)
     except ValueError:
         print("Invalid query")
         return
@@ -150,7 +157,7 @@ def execute_query(database, query):
             intermediate_results = [filter_by_values(temp_file, converted_conditions) for temp_file in intermediate_results]
 
         if sort_by:
-            sorted_file = execute_external_sort(intermediate_results, sort_by)
+            sorted_file = execute_external_sort(intermediate_results, sort_by, reverse=reverse)
             with open(sorted_file, 'r') as file:
                 for line in file:
                     print(select_record_fields(json.loads(line), columns))
@@ -168,5 +175,5 @@ def execute_query(database, query):
 
 
 if __name__ == '__main__':
-    query = "GET season, player, age FROM players FILTER season = '2024' AND age >= 32 SORT age"
+    query = "GET season, player, age FROM players FILTER season = '2024' AND age >= 32 SORT age DESC"
     execute_query('nba', query)
