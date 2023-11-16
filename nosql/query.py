@@ -60,7 +60,7 @@ def select_fields(temp_file, fields, last_operation: bool = True):
     with open(temp_file, 'r') as file:
         for line in file:
             data = json.loads(line)
-            selected_data = {field: data[field] for field in fields}
+            selected_data = data if fields == ['*'] else {field: data[field] for field in fields}
             if last_operation:
                 yield selected_data
             else:
@@ -74,7 +74,14 @@ def select_fields(temp_file, fields, last_operation: bool = True):
 
 
 def select_record_fields(record, fields):
-    selected_record = {field: record[field] for field in fields}
+    """
+    Selects specified fields from a record.
+    :param record: The record from which fields are to be selected.
+    :param fields: List of fields to select from the record or '*' for all fields.
+    :return: A dictionary with only the selected fields or all fields if '*' is specified.
+    """
+    # Select all fields if fields is '*'
+    selected_record = record if fields == ['*'] else {field: record[field] for field in fields}
     return selected_record
 
 
