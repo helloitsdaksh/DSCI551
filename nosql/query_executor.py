@@ -4,14 +4,16 @@ Modify group by function, so it returns a dictionary format and can be passed on
 
 
 from query import *
+import shlex
+import re
 
 
 METADATA_FILE = 'metadata.json'
 
 
 def parse_query(query):
-    parts = query.split()
-    parts_lower = query.lower().split()
+    parts = shlex.split(query, posix=False)
+    parts_lower = [part.lower() for part in parts]
     try:
         get_index = parts_lower.index("get")
         from_index = parts_lower.index("from")
@@ -136,6 +138,26 @@ def convert_to_nested_format(condition_list):
         return conditions[0]
 
 
+def parse_aggregation_query(input_list):
+    group_key = []
+    targets = {}
+
+    # Regular expression pattern to match aggregation functions
+    agg_pattern = re.compile(r'(\w+)\((\w+)\)')  # Matches 'COUNT(field)' or 'AVG(field)'
+
+    for item in input_list:
+        match = agg_pattern.match(item)
+        if match:
+            # If the item is an aggregation function, extract the function and field
+            func, field = match.groups()
+            targets[field] = func.lower()  # Convert function to lowercase ('count', 'avg', etc.)
+        else:
+            # If the item is not an aggregation function, add it to group keys
+            group_key.append(item)
+
+    return group_key, targets
+
+
 def execute_query(database, query):
     try:
         columns, table, conditions, group_by, sort_by, reverse, limit = parse_query(query)
@@ -156,17 +178,40 @@ def execute_query(database, query):
             converted_conditions = convert_to_nested_format(conditions)
             intermediate_results = [filter_by_values(temp_file, converted_conditions) for temp_file in intermediate_results]
 
-        if sort_by:
-            sorted_file = execute_external_sort(intermediate_results, sort_by, reverse=reverse)
-            with open(sorted_file, 'r') as file:
-                for line in file:
-                    print(select_record_fields(json.loads(line), columns))
-            os.remove(sorted_file)
-        else:
-            results = [select_fields(temp_file, columns) for temp_file in intermediate_results]
-            for result in results:
-                for item in result:
-                    print(item)
+        if group_by:
+            for column in group_by:
+                if column not in columns:
+                    print(f"Column '{column}' need to be selected")
+                    return
+
+            group_key, targets = parse_aggregation_query(columns)
+            partial_agg = [partial_aggregate(temp_file, group_key, targets) for temp_file in intermediate_results]
+            final_agg = final_aggregate(partial_agg, targets)
+
+            if sort_by:
+                sorted_file = sort_and_write_chunk(final_agg, sort_by, reverse)
+                with open(sorted_file, 'r') as file:
+                    for line in file:
+                        print(json.loads(line))
+                os.remove(sorted_file)
+            else:
+                with open(final_agg, 'r') as file:
+                    for line in file:
+                        print(json.loads(line))
+
+        elif not group_by:
+            if sort_by:
+                sorted_file = execute_external_sort(intermediate_results, sort_by, reverse=reverse)
+                with open(sorted_file, 'r') as file:
+                    for line in file:
+                        print(select_record_fields(json.loads(line), columns))
+                os.remove(sorted_file)
+            else:
+                results = [select_fields(temp_file, columns) for temp_file in intermediate_results]
+                for result in results:
+                    for item in result:
+                        print(item)
+
     finally:
         # Clean up all intermediate files
         for temp_file in intermediate_results:
@@ -175,5 +220,5 @@ def execute_query(database, query):
 
 
 if __name__ == '__main__':
-    query = "GET season, player, age FROM players FILTER season = '2024' AND age >= 32 SORT age DESC"
+    query = "GET season, tm, COUNT(player), AVG(age) FROM players FILTER season = '2024' GROUP season, tm SORT age_avg DESC"
     execute_query('nba', query)
