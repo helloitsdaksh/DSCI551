@@ -108,13 +108,13 @@ class Database:
             existing_data = list(reader)
             foreign_key_check = True
 
-            if primary_key and any(row[primary_key] == data.get(primary_key) for row in existing_data):
+            if primary_key and any(row[primary_key] == str(data.get(primary_key)) for row in existing_data):
                 print(f"Error: Primary key constraint violated for column '{primary_key}'.")
                 return False
 
             if unique_constraints:
                 for constraint in unique_constraints:
-                    if any(row.get(constraint) == data.get(constraint) for row in existing_data):
+                    if any(row.get(constraint) == str(data.get(constraint)) for row in existing_data):
                         print(f"Error: Unique constraint violated for column '{constraint}'.")
                         return False
 
@@ -135,7 +135,7 @@ class Database:
                                 ref_reader = csv.DictReader(ref_csv_file)
                                 ref_data = list(ref_reader)
 
-                            if not any(row[referenced_column] == data.get(foreign_key_column) for row in ref_data):
+                            if not any(row[referenced_column] == str(data.get(foreign_key_column)) for row in ref_data):
                                 foreign_key_check = False
                                 break
 
