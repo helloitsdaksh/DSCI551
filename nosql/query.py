@@ -263,7 +263,7 @@ def execute_external_sort(input_files: list[str], sort_key: str, reverse=False):
 # Aggregation Functions
 # -------------------------------------------
 
-def partial_aggregate(temp_file_name: str, group_keys: str | list[str] , targets: dict | list[dict]) -> dict:
+def partial_aggregate(temp_file_name: str, group_keys: str | list[str], targets: dict | list[dict]) -> dict:
     """
     Performs partial aggregation on a JSON file. It groups the data based on the specified keys and performs
     :param temp_file_name:
@@ -272,6 +272,10 @@ def partial_aggregate(temp_file_name: str, group_keys: str | list[str] , targets
     :return:
     """
     grouped_data = defaultdict(lambda: {target: [] for target in targets})
+
+    # if isinstance(targets, list):
+    #     # Assuming each element in the list is a dictionary with one key-value pair
+    #     targets = {list(target.keys())[0]: list(target.values())[0] for target in targets}
 
     with open(temp_file_name, 'r') as file:
         for line in file:
@@ -288,17 +292,19 @@ def partial_aggregate(temp_file_name: str, group_keys: str | list[str] , targets
         partial_result[group_key] = {}
         for target, values in group.items():
             aggregation = targets[target]
+            # filter out non-numeric values for numeric aggregations
+            numeric_values = [v for v in values if isinstance(v, (int, float))]
             if aggregation == 'sum':
-                partial_result[group_key][target] = sum(values)
+                partial_result[group_key][target] = sum(numeric_values)
             elif aggregation == 'avg':
                 partial_result[group_key][target] = (
-                sum(values), len(values))  # Store sum and count for average calculation
+                sum(numeric_values), len(numeric_values))  # Store sum and count for average calculation
             elif aggregation == 'count':
                 partial_result[group_key][target] = len(values)
             elif aggregation == 'max':
-                partial_result[group_key][target] = max(values)
+                partial_result[group_key][target] = max(numeric_values)
             elif aggregation == 'min':
-                partial_result[group_key][target] = min(values)
+                partial_result[group_key][target] = min(numeric_values)
             else:
                 raise ValueError("Unsupported aggregation function")
 
@@ -327,18 +333,19 @@ def final_aggregate(partial_results: list[dict], targets: dict | list[dict]) -> 
                     final_result[group_key][target]['values'].append(value)
 
     # Calculate final aggregated values
-    for group_key, group_values in final_result.items():
+    formatted_data = []
+    for group_keys, group_values in final_result.items():
+        group_doc = {"_key": list(group_keys) if len(group_keys) > 1 else group_keys[0]}
         for target, data in group_values.items():
             aggregation = targets[target]
+            agg_key = f'{target}_{aggregation}'
             if aggregation == 'avg':
-                final_result[group_key][target] = data['sum'] / data['count'] if data['count'] > 0 else 0
+                group_doc[agg_key] = round(data['sum'] / data['count'], 4) if data['count'] > 0 else 0
             elif aggregation in ['max', 'min']:
-                final_result[group_key][target] = max(data['values']) if aggregation == 'max' else min(
-                    data['values'])
+                group_doc[agg_key] = max(data['values']) if aggregation == 'max' else min(data['values'])
             else:
-                final_result[group_key][target] = data['sum']
-
-    formatted_data = {key[0] if len(key) == 1 else key: value for key, value in final_result.items()}
+                group_doc[agg_key] = data['sum']
+        formatted_data.append(group_doc)
 
     return formatted_data
 
@@ -372,7 +379,7 @@ def save_json_items_to_tempfile(input_file_path: str) -> str:
 
 if __name__ == '__main__':
     metadata_file = 'metadata.json'
-    database = 'basketball'
+    database = 'nba'
     # test filtering
     # target = 'artist(s)_name'
     # condition = 'eq'
@@ -382,14 +389,15 @@ if __name__ == '__main__':
     #     print(item)
 
     # test group_by
-    # group_key = ['SEASON', 'HOME_TEAM_ID']
-    # targets = {'GAME_ID': 'count'}
-    # file_number = get_last_file_number(metadata_file, database, collection)
-    # input_files = [f'../data/{database}_{collection}_{i}.json' for i in range(1, file_number+1)]
-    # temp_files = [save_json_items_to_tempfile(input_file) for input_file in input_files]
-    # partial_results = [partial_aggregate(temp_file, group_key, targets) for temp_file in temp_files]
-    # result = final_aggregate(partial_results, targets)
-    # print(result)
+    collection = 'players'
+    group_key = ['season', 'tm']
+    targets = {'player': 'count', 'age': 'avg'}
+    file_number = get_last_file_number(metadata_file, database, collection)
+    input_files = [f'data/{database}_{collection}_{i}.json' for i in range(1, file_number+1)]
+    temp_files = [save_json_items_to_tempfile(input_file) for input_file in input_files]
+    partial_results = [partial_aggregate(temp_file, group_key, targets) for temp_file in temp_files]
+    result = final_aggregate(partial_results, targets)
+    print(result)
 
     # test sort_by
     # input_files = ['../data/sample_test.json', '../data/sample_test_2.json']
