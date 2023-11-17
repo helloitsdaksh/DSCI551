@@ -153,7 +153,7 @@ def filter_by_values(temp_file, conditions) -> str:
 # -------------------------------------------
 # Sorting Operations
 # -------------------------------------------
-def _sort_and_write_chunk(file_name: str, sort_key: str | list[str], reverse=False):
+def sort_and_write_chunk(file_name: str, sort_key: str | list[str], reverse=False):
     """
     Sorts and writes a chunk of data to a temporary file.
     :param file_name:
@@ -193,10 +193,19 @@ def _push_to_heap(heap, file_index, data, sort_key, reverse):
     :return:
     """
     if isinstance(sort_key, list):
-        key = tuple(-data[k] if reverse else data[k] for k in sort_key)
+        key = tuple(_get_sort_key(data[k], reverse) for k in sort_key)
     else:
-        key = -data[sort_key] if reverse else data[sort_key]
+        key = _get_sort_key(data[sort_key], reverse)
+
     heapq.heappush(heap, (key, file_index, data))
+
+
+def _get_sort_key(value, reverse):
+    # If the value is a string and not empty, use the Unicode code point of its first character
+    if isinstance(value, str) and value:
+        return -ord(value[0]) if reverse else value
+    # Otherwise, return the value as is (handles integers and other types)
+    return -value if reverse and isinstance(value, (int, float)) else value
 
 
 def _merge_sorted_files(sorted_files: list, sort_key: str | list[str], reverse=False):
@@ -251,7 +260,7 @@ def execute_external_sort(input_files: list[str], sort_key: str, reverse=False):
     :param sort_key:
     :return:
     """
-    sorted_files = [_sort_and_write_chunk(file_name, sort_key, reverse=reverse) for file_name in input_files]
+    sorted_files = [sort_and_write_chunk(file_name, sort_key, reverse=reverse) for file_name in input_files]
     merged_file = _merge_sorted_files(sorted_files, sort_key, reverse=reverse)
     for temp_file in sorted_files:
         os.remove(temp_file)
@@ -263,7 +272,7 @@ def execute_external_sort(input_files: list[str], sort_key: str, reverse=False):
 # Aggregation Functions
 # -------------------------------------------
 
-def partial_aggregate(temp_file_name: str, group_keys: str | list[str], targets: dict | list[dict]) -> dict:
+def partial_aggregate(temp_file_name: str, group_keys: str | list[str], targets: dict) -> dict:
     """
     Performs partial aggregation on a JSON file. It groups the data based on the specified keys and performs
     :param temp_file_name:
@@ -311,7 +320,7 @@ def partial_aggregate(temp_file_name: str, group_keys: str | list[str], targets:
     return partial_result
 
 
-def final_aggregate(partial_results: list[dict], targets: dict | list[dict]) -> dict:
+def final_aggregate(partial_results: list[dict], targets: dict) -> str:
     """
     Performs final aggregation on partial results.
     :param partial_results:
@@ -324,6 +333,7 @@ def final_aggregate(partial_results: list[dict], targets: dict | list[dict]) -> 
         for group_key, group_values in partial.items():
             for target, value in group_values.items():
                 aggregation = targets[target]
+
                 if aggregation in ['sum', 'count']:
                     final_result[group_key][target]['sum'] += value
                 elif aggregation == 'avg':
@@ -333,7 +343,7 @@ def final_aggregate(partial_results: list[dict], targets: dict | list[dict]) -> 
                     final_result[group_key][target]['values'].append(value)
 
     # Calculate final aggregated values
-    formatted_data = []
+    temp_file = tempfile.NamedTemporaryFile(delete=False, mode='w')
     for group_keys, group_values in final_result.items():
         group_doc = {"_key": list(group_keys) if len(group_keys) > 1 else group_keys[0]}
         for target, data in group_values.items():
@@ -345,9 +355,10 @@ def final_aggregate(partial_results: list[dict], targets: dict | list[dict]) -> 
                 group_doc[agg_key] = max(data['values']) if aggregation == 'max' else min(data['values'])
             else:
                 group_doc[agg_key] = data['sum']
-        formatted_data.append(group_doc)
+        temp_file.write(json.dumps(group_doc) + '\n')
+    temp_file.close()
 
-    return formatted_data
+    return temp_file.name
 
 
 # -------------------------------------------
