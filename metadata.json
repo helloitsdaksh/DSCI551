@@ -1,35 +1,70 @@
 {
-    "departments.csv": {
-        "table_name": "departments.csv",
+    "players.csv": {
+        "table_name": "players.csv",
         "columns": {
-            "department_id": "INT",
-            "department_name": "VARCHAR(50)"
+            "playerID": "INT",
+            "name": "VARCHAR(255)"
         },
-        "primary_key": "department_id",
+        "primary_key": "playerID",
         "unique_constraints": null,
         "foreign_keys": null
     },
-    "employees.csv": {
-        "table_name": "employees.csv",
-        "columns": {
-            "employee_id": "INT",
-            "first_name": "VARCHAR(50)",
-            "last_name": "VARCHAR(50)",
-            "department_id": "INT"
-        },
-        "primary_key": "employee_id",
-        "unique_constraints": [
-            "first_name"
+    "references": {
+        "players": [
+            "appearance"
         ],
-        "foreign_keys": [
-            {
-                "department_id": "departments"
-            }
+        "leagues": [
+            "appearance"
         ]
     },
-    "references": {
-        "departments": [
-            "employees"
+    "teams.csv": {
+        "table_name": "teams.csv",
+        "columns": {
+            "teamID": "INT",
+            "name": "VARCHAR(255)"
+        },
+        "primary_key": "teamID",
+        "unique_constraints": null,
+        "foreign_keys": null
+    },
+    "leagues.csv": {
+        "table_name": "leagues.csv",
+        "columns": {
+            "leagueID": "INT",
+            "name": "VARCHAR(255)",
+            "understatNotation": "VARCHAR(255)"
+        },
+        "primary_key": "leagueID",
+        "unique_constraints": null,
+        "foreign_keys": null
+    },
+    "appearance.csv": {
+        "table_name": "appearance.csv",
+        "columns": {
+            "gameID": "INT",
+            "playerID": "INT",
+            "goals": "INT",
+            "ownGoals": "INT",
+            "shots": "INT",
+            "position": "VARCHAR(255)",
+            "positionOrder": "INT",
+            "yellowCard": "INT",
+            "redCard": "INT",
+            "time": "INT",
+            "leagueID": "INT"
+        },
+        "primary_key": [
+            "gameID",
+            "playerID"
+        ],
+        "unique_constraints": null,
+        "foreign_keys": [
+            {
+                "playerID": "players"
+            },
+            {
+                "leagueID": "leagues"
+            }
         ]
     }
 }
