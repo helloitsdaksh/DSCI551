@@ -79,6 +79,93 @@ def get_last_file_number(database_name: str, collection_name: str) -> list or No
         return None
 
 
+def show_collections(database_name: str):
+    """
+    Show all collections in a database
+    :param database_name:
+    :return:
+    """
+    metadata = load_metadata()
+    for database in metadata['databases']:
+        if database['name'] == database_name:
+            for collection in database['collections']:
+                print(collection['name'])
+
+
+def show_databases():
+    """
+    Show all databases
+    :return:
+    """
+    metadata = load_metadata()
+    for database in metadata['databases']:
+        print(database['name'])
+
+
+def create_collection(database_name: str, collection_name: str):
+    """
+    Create a new collection in a JSON database file
+    :param database_name:
+    :param collection_name:
+    :return:
+    """
+    metadata = load_metadata()
+    for database in metadata['databases']:
+        if database['name'] == database_name:
+            database['collections'].append({'name': collection_name, 'partition_count': 1})
+            save_metadata(metadata)
+            with open(f'data/{database_name}_{collection_name}_1.json', 'w') as file:
+                json.dump([], file)
+            return True
+    return False
+
+
+def create_database(database_name: str):
+    """
+    Create a new database
+    :param database_name:
+    :return:
+    """
+    metadata = load_metadata()
+    metadata['databases'].append({'name': database_name, 'collections': []})
+    save_metadata(metadata)
+    return True
+
+
+def drop_collection(database_name: str, collection_name: str):
+    """
+    Delete a collection in a JSON database file
+    :param database_name:
+    :param collection_name:
+    :return:
+    """
+    metadata = load_metadata()
+    for database in metadata['databases']:
+        if database['name'] == database_name:
+            for collection in database['collections']:
+                if collection['name'] == collection_name:
+                    os.remove(f'data/{database_name}_{collection_name}_{collection["partition_count"]}.json')
+                    database['collections'].remove(collection)
+                    save_metadata(metadata)
+                    return True
+    return False
+
+
+def drop_database(database_name: str):
+    """
+    Delete a database (this actually don't delete the data because I want to keep it)
+    :param database_name:
+    :return:
+    """
+    metadata = load_metadata()
+    for database in metadata['databases']:
+        if database['name'] == database_name:
+            metadata['databases'].remove(database)
+            save_metadata(metadata)
+            return True
+    return False
+
+
 def calculate_data_size(data):
     json_string = json.dumps(data)
     byte_data = json_string.encode('utf-8')
@@ -101,12 +188,8 @@ def insert_one(database_name: str, collection_name: str, new_data: str) -> bool:
 
     existing_file_number = get_last_file_number(database_name, collection_name)
     if existing_file_number is None:
-        existing_data = [json_data]
-        file_name = f'../data/{database_name}_{collection_name}_1.json'
-        with open(file_name, 'w') as file:
-            json.dump(existing_data, file, indent=2)
-
-        update_metadata(database_name, collection_name, 1)
+        print('Insertion failed. Collection does not exist.')
+        return False
 
     else:
         with open(f'data/{database_name}_{collection_name}_{existing_file_number}.json', 'r') as file:

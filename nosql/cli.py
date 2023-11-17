@@ -1,7 +1,8 @@
-from nosql.functions import *
-from nosql.query_executor import *
+from functions import *
+from query_executor import *
 import json
 import re
+import readline
 
 METADATA_FILE = 'metadata.json'
 
@@ -18,7 +19,7 @@ def validate_command(command: str):
 
     command_type = parts[0]
 
-    if command_type == 'select_db':
+    if command_type == 'select':
         if len(parts) != 2:
             print("Invalid command. Usage: select_db <database_name>")
         else:
@@ -38,7 +39,54 @@ def validate_command(command: str):
         print("No database selected. Please select a database using 'select_db <database_name>'")
 
     else:
-        if command_type == 'insert':
+        if command_type == 'list':
+            if len(parts) != 2:
+                print("Invalid command. Usage: list collection/db")
+            else:
+                if parts[1] == 'collection':
+                    show_collections(selected_db)
+                elif parts[1] == 'db':
+                    show_databases()
+                else:
+                    print("Invalid command. Usage: list collection/db")
+
+        elif command_type == 'create':
+            if len(parts) != 3:
+                print("Invalid command. Usage: create collection/db <collection_name/db_name>")
+            else:
+                if parts[1] == 'collection':
+                    res = create_collection(selected_db, parts[2])
+                    if res:
+                        print("Collection created successfully.")
+                elif parts[1] == 'db':
+                    res = create_database(parts[2])
+                    if res:
+                        print("Database created successfully.")
+                else:
+                    print("Invalid command. Usage: create collection/db <collection_name/db_name>")
+
+        elif command_type == 'drop':
+            if len(parts) != 3:
+                print("Invalid command. Usage: drop collection/db <collection_name/db_name>")
+            else:
+                # Ask for confirmation before dropping
+                confirm = input(
+                    f"Are you sure you want to drop the {parts[1]} '{parts[2]}'? (yes/no): ").strip().lower()
+                if confirm == 'yes':
+                    if parts[1] == 'collection':
+                        res = drop_collection(selected_db, parts[2])
+                        if res:
+                            print("Collection dropped successfully.")
+                    elif parts[1] == 'db':
+                        res = drop_database(parts[2])
+                        if res:
+                            print("Database dropped successfully.")
+                    else:
+                        print("Invalid command. Usage: drop collection/db <collection_name/db_name>")
+                else:
+                    print(f"Drop operation for {parts[1]} '{parts[2]}' canceled.")
+
+        elif command_type == 'insert':
             if len(parts) != 3:
                 print("Invalid command. Usage: insert <collection_name> <data>")
             else:
