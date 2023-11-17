@@ -191,26 +191,39 @@ def execute_query(database, query):
             if sort_by:
                 sorted_file = sort_and_write_chunk(final_agg, sort_by, reverse)
                 with open(sorted_file, 'r') as file:
-                    for line in file:
-                        print(json.loads(line))
+                    for i, line in enumerate(file):
+                        if limit is not None and i == limit:
+                            break
+                        print(line.strip())
                 os.remove(sorted_file)
             else:
                 with open(final_agg, 'r') as file:
-                    for line in file:
-                        print(json.loads(line))
+                    for i, line in enumerate(file):
+                        if limit is not None and i == limit:
+                            break
+                        print(line.strip())
 
         elif not group_by:
             if sort_by:
                 sorted_file = execute_external_sort(intermediate_results, sort_by, reverse=reverse)
                 with open(sorted_file, 'r') as file:
-                    for line in file:
-                        print(select_record_fields(json.loads(line), columns))
+                    for i, line in enumerate(file):
+                        if limit is not None and i == limit:
+                            break
+                        print(json.dumps(select_record_fields(json.loads(line), columns)))
                 os.remove(sorted_file)
             else:
                 results = [select_fields(temp_file, columns) for temp_file in intermediate_results]
+                count = 0
                 for result in results:
                     for item in result:
-                        print(item)
+                        if limit is not None and count == limit:
+                            break
+                        count += 1
+                        print(json.dumps(item))
+
+    except Exception as e:
+        print(f"Error during query execution: {e}")
 
     finally:
         # Clean up all intermediate files
@@ -220,5 +233,7 @@ def execute_query(database, query):
 
 
 if __name__ == '__main__':
-    query = "GET season, tm, COUNT(player), AVG(age) FROM players FILTER season = '2024' GROUP season, tm SORT age_avg DESC"
+    # query = ("GET season, tm, COUNT(player), AVG(age) FROM players F"
+    #          "ILTER season = '2024' GROUP season, tm SORT age_avg DESC LIMIT 10")
+    query = "GET player, tm FROM players FILTER season = '2022' SORT player DESC LIMIT 10"
     execute_query('nba', query)
