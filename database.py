@@ -415,7 +415,7 @@ class Database:
             reader = csv.DictReader(temp_file)
             for row in reader:
                 print(row)
-    def search(self, table_name, conditions=None, columns=None, sort_by=None, ascending=True, group_by=None):
+    def search(self, table_name, conditions=None, columns=None, sort_by=None, ascending=True, group_by=None, aggregation=None):
         table_name = self.add_extension(table_name)
 
         if table_name not in self.tables:
@@ -440,19 +440,53 @@ class Database:
                 rows.sort(key=lambda x: x[sort_by], reverse=not ascending)
 
                 # Group by if a group_by column is specified
-            if group_by and group_by in columns:
-                grouped_data = {}
-                for row in rows:
-                    group_value = row[group_by]
-                    if group_value not in grouped_data:
-                        grouped_data[group_value] = []
-                    grouped_data[group_value].append(row)
+                # Group by if a group_by column is specified
+                if group_by and group_by in columns:
+                    grouped_data = {}
+                    for row in rows:
+                        group_value = row[group_by]
+                        if group_value not in grouped_data:
+                            grouped_data[group_value] = {'count':0}
 
-                # Write the grouped rows to the result file
-                for group_value, group_rows in grouped_data.items():
-                    result_csv_writer.writerow({group_by:group_value})
-                    for group_row in group_rows:
-                        result_csv_writer.writerow(group_row)
+                        # Update aggregated values on the fly
+                        if aggregation:
+                            for agg_column, agg_function in aggregation.items():
+                                if agg_column in row:
+                                    value = float(row[agg_column])
+                                    grouped_data[group_value].setdefault(agg_column + "_sum", 0)
+                                    grouped_data[group_value].setdefault(agg_column + "_count", 0)
+                                    grouped_data[group_value].setdefault(agg_column + "_max", float('-inf'))
+                                    grouped_data[group_value].setdefault(agg_column + "_min", float('inf'))
+
+                                    grouped_data[group_value][agg_column + "_sum"] += value
+                                    grouped_data[group_value][agg_column + "_count"] += 1
+                                    grouped_data[group_value][agg_column + "_max"] = max(
+                                        grouped_data[group_value][agg_column + "_max"], value
+                                        )
+                                    grouped_data[group_value][agg_column + "_min"] = min(
+                                        grouped_data[group_value][agg_column + "_min"], value
+                                        )
+
+                        grouped_data[group_value]['count'] += 1
+
+                    # Print the grouped and aggregated results
+                    for group_value, group_data in grouped_data.items():
+                        print({group_by:group_value, 'count':group_data['count']})
+
+                        # Apply aggregation functions if specified
+                        if aggregation:
+                            for agg_column, agg_function in aggregation.items():
+                                agg_column_sum = group_data.get(agg_column + "_sum", 0)
+                                agg_column_count = group_data.get(agg_column + "_count", 1)
+                                agg_column_max = group_data.get(agg_column + "_max", 0)
+                                agg_column_min = group_data.get(agg_column + "_min", 0)
+
+                                if agg_function.lower() == 'avg':
+                                    print({agg_column + "_avg":agg_column_sum / agg_column_count})
+                                elif agg_function.lower() == 'max':
+                                    print({agg_column + "_max":agg_column_max})
+                                elif agg_function.lower() == 'min':
+                                    print({agg_column + "_min":agg_column_min})
 
             else:
                 # Write the sorted or unsorted rows to the result file
@@ -568,17 +602,21 @@ class Database:
         self.create_table(table_name, columns, primary_key, unique_constraints, foreign_keys)
         print(f"Table '{table_name}' has been created.")
 
-    def input_search_query(self, query_str):
+    import re
+    def input_search_query(self,query_str):
         query_str = query_str.strip()
         # Define regular expressions for extracting information
-        search_pattern = re.compile(r"search\s*table\s*(\w+)(?:\s*,\s*where\s*([^,]+))?(?:\s*,\s*columns\s*=\s*\[([^\]]+)\])?(?:\s*,\s*group_by\s*=\s*(\w+))?(?:\s*,\s*sort_by\s*=\s*(\w+))?(?:\s*,\s*ascending\s*=\s*(\w+))?")
+        search_pattern = re.compile(
+            r"search\s*table\s*(\w+)(?:\s*,\s*where\s*([^,]+))?(?:\s*,\s*columns\s*=\s*\[([^\]]+)\])?(?:\s*,\s*agg\s*=\s*\[([^\]]+)\])?(?:\s*,\s*group_by\s*=\s*(\w+))?(?:\s*,\s*sort_by\s*=\s*(\w+))?(?:\s*,\s*ascending\s*=\s*(\w+))?"
+            )
         # Extract information using regular expressions
-        search_match = search_pattern.search(str(query_str))#query_str)
+        search_match = search_pattern.search(str(query_str))  # query_str)
 
         # Initialize variables with default values
         table = None
         conditions = None
         columns = None
+        aggregation = None
         sort_by = None
         ascending = None
         group_by = None
@@ -586,7 +624,7 @@ class Database:
         # Assign values if matches are found
         # Assign values if matches are found
         if search_match:
-            table, conditions_str, columns_str, group_by, sort_by, ascending_str= search_match.groups()
+            table, conditions_str, columns_str, agg_str, group_by, sort_by, ascending_str = search_match.groups()
 
             # Extract conditions if present
             if conditions_str:
@@ -596,21 +634,27 @@ class Database:
             if columns_str:
                 columns = [column.strip() for column in columns_str.split(',')]
 
+            if agg_str:
+                pattern = re.compile(r'(\w+)\((\w+)\)')
+                matches = re.findall(pattern, agg_str)
+                aggregation = {col: agg.lower() for agg, col in matches}
+            # Extract aggregation if present
             # Convert ascending to boolean
             ascending = True if ascending_str and ascending_str.lower() == 'true' else False
 
         if not table:
             print("Invalid query format. Please follow the example below:")
             print(
-                "Example Query: search table players where name like XYZ and goals >= 4, columns = [playerID, name], sort_by = goals, ascending = True"
+                "Example Query: search table players, where name like XYZ and goals >= 4, columns = [playerID, name], agg=[SUM(goals), AVG(goals)], sort_by = goals, ascending = True"
                 )
             return
         final_conditions = []
-        if conditions!=None:
+        if conditions != None:
             for condition in conditions:
                 final_conditions.append(condition.split(" "))
+        #
         # Perform the search
-        self.search(table, conditions=final_conditions, columns=columns, sort_by=sort_by, ascending=ascending, group_by=group_by)
+        self.search(table, conditions=final_conditions, columns=columns, aggregation=aggregation, sort_by=sort_by, ascending=ascending, group_by=group_by)
 
     def input_insert_query(self, query_str):
         query_str = query_str.strip()
@@ -721,7 +765,7 @@ class Database:
             for condition in conditions:
                 final_conditions.append(condition.split(" "))
         # Perform the join
-        self.join_with_condition(table_name1, table_name2, on_column, final_conditions, columns)
+        return self.join_with_condition(table_name1, table_name2, on_column, final_conditions, columns)
 
 if __name__ == "__main__":
     db = Database()
@@ -737,7 +781,8 @@ if __name__ == "__main__":
             print("Example queries:")
             print("1. create - YOU DON'T NEED A QUERY TO CREATE A TABLE.")
             print("2. insert - Example Query: insert into players values = {'playerID': 10000, 'name': 'XYZ'}")
-            print("3. search - Example Query: search table players where name like XYZ and goals >= 4, columns = [playerID, name], group_by = goals, sort_by = goals, ascending = True")
+            print("3. search - Example Query: search table players where name like XYZ and goals >= 4, columns = [playerID, name], group_by = goals, sort_by = goals, ascending = True"
+                  "\n Example Query: search table appearance, agg=[SUM(goals), AVG(goals)], group_by=goals,  sort_by = goals, ascending = True")
             print("4. update - Example Query: update players set {'name': 'Ronaldo'} where {'playerID': 100000}")
             print("5. delete - Example Query: delete players where {'playerID': '100000'}, force=True")
             print("6. join - Example Query: join appearance with players on  playerID, conditions=goals >= 4, columns= [name,playerID,goals] ")
